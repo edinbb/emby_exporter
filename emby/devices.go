@@ -18,6 +18,7 @@ type Device struct {
 	AppVersion       string `json:"AppVersion"`
 	LastUserId       string `json:"LastUserId"`
 	DateLastActivity string `json:"DateLastActivity"`
+	IpAddress        string `json:"IpAddress"`
 }
 
 func (c *Client) GetDevices() (*DeviceList, error) {

@@ -1,13 +1,12 @@
 package emby
 
-import (
-	"strings"
-)
-
 type Status struct {
-	ServerName string
-	Hostname   string
-	Version    string
+	ServerName      string
+	Version         string
+	OperatingSystem string
+
+	HasUpdateAvailable bool
+	HasPendingRestart  bool
 
 	DeviceCount int
 
@@ -15,24 +14,19 @@ type Status struct {
 	SeriesCount  int
 	EpisodeCount int
 
-	UserCount        int
-	FailedLoginCount map[string]int
-
-	MediaStreamCount   int
-	TranscodingCount   int
-	TranscodingBitRate map[string]int
-	VideoBitRate       map[string]int
-	AudioChannels      map[string]int
-	AudioBitRate       map[string]int
+	UserCount                int
+	FailedLoginCount         map[string]int
+	SessionCountByPlayMethod map[string]int
 }
 
 func (c *Client) Status() (*Status, error) {
 	s := &Status{
-		FailedLoginCount:   make(map[string]int),
-		TranscodingBitRate: make(map[string]int),
-		VideoBitRate:       make(map[string]int),
-		AudioChannels:      make(map[string]int),
-		AudioBitRate:       make(map[string]int),
+		FailedLoginCount: make(map[string]int),
+		SessionCountByPlayMethod: map[string]int{
+			"DirectPlay":   0,
+			"DirectStream": 0,
+			"Transcode":    0,
+		},
 	}
 
 	sys, err := c.GetSystemInfo()
@@ -40,34 +34,37 @@ func (c *Client) Status() (*Status, error) {
 		return nil, err
 	}
 
-	s.ServerName = strings.ToLower(sys.ServerName)
-	s.Hostname = sys.WanAddress
+	s.ServerName = sys.ServerName
 	s.Version = sys.Version
+	s.OperatingSystem = sys.OperatingSystem
 
-	devices, err := c.GetDevices()
+	s.HasUpdateAvailable = sys.HasUpdateAvailable
+	s.HasPendingRestart = sys.HasPendingRestart
+
+	deviceList, err := c.GetDevices()
 	if err != nil {
 		return nil, err
 	}
 
-	s.DeviceCount = devices.TotalCount
+	s.DeviceCount = len(deviceList.Devices)
 
-	libary, err := c.GetLibraryItems()
+	library, err := c.GetLibraryItems()
 	if err != nil {
 		return nil, err
 	}
 
-	s.MovieCount = libary.MovieCount
-	s.SeriesCount = libary.SeriesCount
-	s.EpisodeCount = libary.EpisodeCount
+	s.MovieCount = library.MovieCount
+	s.SeriesCount = library.SeriesCount
+	s.EpisodeCount = library.EpisodeCount
 
-	users, err := c.GetUsers()
+	userList, err := c.GetUsers()
 	if err != nil {
 		return nil, err
 	}
 
-	s.UserCount = users.TotalCount
-	for _, user := range users.Users {
-		s.FailedLoginCount[strings.ToLower(user.Name)] = user.Policy.InvalidLoginAttemptCount
+	s.UserCount = userList.TotalCount
+	for _, user := range userList.Users {
+		s.FailedLoginCount[user.Name] = user.Policy.InvalidLoginAttemptCount
 	}
 
 	sessions, err := c.GetSessions()
@@ -76,24 +73,11 @@ func (c *Client) Status() (*Status, error) {
 	}
 
 	for _, session := range *sessions {
-		if session.TranscodingInfo != nil {
-			s.TranscodingCount++
-			s.VideoBitRate[strings.ToLower(session.UserName)] += int(session.TranscodingInfo.Bitrate)
+		if session.NowPlayingItem == nil {
+			continue
 		}
 
-		if len(session.NowPlayingItem.MediaStreams) > 0 {
-			for _, stream := range session.NowPlayingItem.MediaStreams {
-				if stream.Type == "Video" {
-					s.MediaStreamCount++
-					s.VideoBitRate[strings.ToLower(session.UserName)] += int(stream.BitRate)
-				}
-
-				if stream.Type == "Audio" {
-					s.AudioChannels[strings.ToLower(session.UserName)] += int(stream.Channels)
-					s.AudioBitRate[strings.ToLower(session.UserName)] += int(stream.BitRate)
-				}
-			}
-		}
+		s.SessionCountByPlayMethod[session.PlayState.PlayMethod]++
 	}
 
 	return s, nil
